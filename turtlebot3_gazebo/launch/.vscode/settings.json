@@ -1,0 +1,22 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/raj/ros2_ws/build/raj_assign",
+        "/home/raj/ros2_ws/install/raj_assign/lib/python3.10/site-packages",
+        "/home/raj/ros2_ws/build/new_pkg",
+        "/home/raj/ros2_ws/install/new_pkg/lib/python3.10/site-packages",
+        "/home/raj/ros2_ws/build/my_py_pkg",
+        "/home/raj/ros2_ws/install/my_py_pkg/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/raj/ros2_ws/build/raj_assign",
+        "/home/raj/ros2_ws/install/raj_assign/lib/python3.10/site-packages",
+        "/home/raj/ros2_ws/build/new_pkg",
+        "/home/raj/ros2_ws/install/new_pkg/lib/python3.10/site-packages",
+        "/home/raj/ros2_ws/build/my_py_pkg",
+        "/home/raj/ros2_ws/install/my_py_pkg/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
+}
