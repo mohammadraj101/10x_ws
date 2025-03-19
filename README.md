@@ -76,6 +76,12 @@ src
 ├── README.md
 ```
 
+## Working :
+Sampling velocities are sampled <br>
+Trajectory Generation <br>
+Removing close velocities which can hit the obstacle <br>
+cost-function generation <br>
+
 ### Current Progress.
 
 1>Tuning of Parameters is required.  
