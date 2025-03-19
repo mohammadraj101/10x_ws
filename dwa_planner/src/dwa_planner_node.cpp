@@ -17,17 +17,21 @@
 
 using namespace std::chrono_literals;
 
-const double ALPHA = 1.5;
-const double BETA = 2.0;
-const double GAMMA = 0.0;
-const double SAFETY_DISTANCE = 0.3;
+/////////////////////////////////////////////////////////////////////////////////////////// Parameters //////////////////
 
-const double V_MIN =  0.1, V_MAX = 0.8;
-const double W_MIN = -1.8, W_MAX = 1.8;
+const double ALPHA = 0.3;
+const double BETA = 0.7;
+const double GAMMA = 0.0;
+const double SAFETY_DISTANCE = 0.5;
+
+const double V_MIN =  0.1, V_MAX = 0.5;
+const double W_MIN = -1.7, W_MAX = 1.7;
 const double A_MIN = -0.5, A_MAX = 0.4;
 const double AL_MIN = -2.5, AL_MAX = 2.5;
-const double V_RES = 0.05, W_RES = 0.05;
-const double T = 2.0 , DT = 0.05;
+const double V_RES = 0.25, W_RES = 0.2;
+const double T = 3.0 , DT = 0.05;
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 struct traj {
     double v;
@@ -47,7 +51,6 @@ class DwaPlanner : public rclcpp::Node{
                 callback_group_1_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
                 callback_group_2_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
                 callback_group_3_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-                // callback_group_4_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
                 
                 rclcpp::SubscriptionOptions c1;
                 c1.callback_group=callback_group_1_;
@@ -59,9 +62,6 @@ class DwaPlanner : public rclcpp::Node{
                 c2.callback_group = callback_group_2_;
                 odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
                     "/odom", 10,std::bind(&DwaPlanner::odom_callback, this, std::placeholders::_1),c2);
-
-                // rclcpp::ServiceOptions c3;
-                // c3.callback_group = callback_group_3_;
                 
                 goal_srv_ = this->create_service<dwa_planner::srv::GetGoal>(
                     "get_goal",
@@ -70,12 +70,8 @@ class DwaPlanner : public rclcpp::Node{
                 vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel",10);
                 marker_pub_ = this-> create_publisher<visualization_msgs::msg::MarkerArray>("/dwa_trajectory",10);
 
-                timer_ = this->create_wall_timer(50ms, std::bind(&DwaPlanner::apply_DWA,this));
-                // vel_timer_ = this->create_wall_timer(100ms, std::bind(&DwaPlanner::publish_velocities,this,vf,wf));
-                // vel_timer_ = this->create_wall_timer(
-                //     100ms, 
-                //     [this]() { this->publish_velocities(vf, wf); }
-                // );
+                timer_ = this->create_wall_timer(250ms, std::bind(&DwaPlanner::apply_DWA,this));
+
 
                 x_goal=5.0;
                 y_goal=2.0;
@@ -100,7 +96,6 @@ class DwaPlanner : public rclcpp::Node{
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr vel_pub_;
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
         rclcpp::TimerBase::SharedPtr timer_;
-        // rclcpp::TimerBase::SharedPtr vel_timer_;
 
         rclcpp::CallbackGroup::SharedPtr callback_group_1_;
         rclcpp::CallbackGroup::SharedPtr callback_group_2_;
@@ -110,11 +105,14 @@ class DwaPlanner : public rclcpp::Node{
 
 
 
+
+        sensor_msgs::msg::LaserScan::SharedPtr laser_msg;
         std::vector<std::pair<double,double>> obstacles;
         double x_goal, y_goal, goal_theta;
         double curr_vx, curr_w;
         double pose_x, pose_y, pose_yaw;
         bool flag=false;
+        bool flag_planning= false;
 
         double vf;
         double wf;
@@ -125,9 +123,14 @@ class DwaPlanner : public rclcpp::Node{
 
     // private:
         
-        void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
+    void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
         {
-            obstacles.clear();
+            laser_msg=msg;
+        }
+
+        std::vector<std::pair<double, double>> get_obstacles(const sensor_msgs::msg::LaserScan::SharedPtr msg)
+        {
+            std::vector<std::pair<double, double>> obst;
             double angle = msg->angle_min;
             for (auto r: msg->ranges)
             {
@@ -136,10 +139,11 @@ class DwaPlanner : public rclcpp::Node{
                     double x= pose_x + r*cos(angle);
                     double y= pose_y + r*sin(angle);
 
-                    obstacles.emplace_back(x , y );
+                    obst.emplace_back(x , y );
                 }
                 angle += msg->angle_increment;
             }
+            return obst;
         }
 
         void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -174,7 +178,7 @@ class DwaPlanner : public rclcpp::Node{
             response->success = true;
         }
 
-        double dist_obst(double x,double y)
+        double dist_obst(double x,double y)     // will return the min distance from the obstacle  of any x,y, cordinate
         {
             double min_dist=100;
             for (auto &obs : obstacles)
@@ -188,12 +192,12 @@ class DwaPlanner : public rclcpp::Node{
             return min_dist;
         }
 
-        bool check_collision(double x,double y)
+        bool check_collision(double x,double y)     // to check whether a trajactory can lead to collisiom
         {
             for (auto &obs : obstacles)
             {
                 double dist= sqrt((obs.first - x)*(obs.first - x)+(obs.second - y)*(obs.second - y));
-                if (dist< 0.25)
+                if (dist< SAFETY_DISTANCE)
                 {
                     return true;
                 }
@@ -201,31 +205,7 @@ class DwaPlanner : public rclcpp::Node{
             return false;
         }
 
-        bool check_collision_back(double x, double y, double theta)
-        {
-            const double BACKWARD_DISTANCE = 0.4;  // How far behind to check
-            const double BACKWARD_ANGLE = 1.57; // 45 degrees backward spread
-        
-            for (auto &obs : obstacles)
-            {
-                double dist = sqrt((obs.first - x) * (obs.first - x) + (obs.second - y) * (obs.second - y));
-                if (dist < BACKWARD_DISTANCE)
-                {
-                    double angle_to_obs = atan2(obs.second - y, obs.first - x);
-                    double angle_diff = fmod(fabs(angle_to_obs - (theta + M_PI)), 2 * M_PI);
-                    if (angle_diff > M_PI) 
-                        angle_diff = 2 * M_PI - angle_diff;
-        
-                    if (angle_diff <= BACKWARD_ANGLE)  // Within the backward cone
-                    {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        std::vector<std::pair<double,double>> sample_velocities()
+        std::vector<std::pair<double,double>> sample_velocities()  //to sample velocities for DWA Approach
         {
             std::vector<std::pair<double, double>> velocities;
             double sampled_v_min = std::max(curr_vx + A_MIN * T, V_MIN);
@@ -249,9 +229,12 @@ class DwaPlanner : public rclcpp::Node{
             return velocities;
         }
 
-        std::vector<traj>  generate_trajectories(const std::vector<std::pair<double, double>>& velocities)
+        std::vector<traj>  generate_trajectories(const std::vector<std::pair<double, double>>& velocities)  // will do all the computation of enerating the trajectories
         {
             std::vector<traj> trajectories;
+            obstacles=get_obstacles(laser_msg);
+            flag_planning=true;
+
             
             for(auto &[v,w] : velocities)
             {
@@ -277,19 +260,19 @@ class DwaPlanner : public rclcpp::Node{
                     {
                         collision =true;
                         break;
-                        // auto p=1+2;
                     }
                     t.points.emplace_back(x,y,th);
                 }
-                t.cost=generate_cost(t);
 
                 if(collision==false)
                 {
+                    t.cost=generate_cost(t);
                     trajectories.emplace_back(t);
                 }
 
             }
             return trajectories;
+            flag_planning =false;
 
         }
         
@@ -298,6 +281,12 @@ class DwaPlanner : public rclcpp::Node{
         {
             auto start_time = this->get_clock()->now();
 
+            if(flag==false)
+            {
+                publish_velocities(0.0, 0.0);
+                return;
+            }
+
             auto velocities = sample_velocities();
             auto trajectories = generate_trajectories(velocities);
 
@@ -305,17 +294,9 @@ class DwaPlanner : public rclcpp::Node{
             if (best_index == -1)   ///////////////////////////////////////////////////////////////////////////// Recovery Behaviour //////////////////////// 
             {
                 RCLCPP_WARN(this->get_logger(), "No valid trajectory found");
-                if (check_collision_back(pose_x,pose_y,pose_yaw))
-                {
-                    // publish_velocities(0.0, 0.08);
-                    vf=0.0;
-                    wf=0.0;
-                }
-                else
-                {
-                    vf=-0.0;
-                    wf=0.0;
-                }
+
+                    publish_velocities(0.0,0.0);
+                    rclcpp::sleep_for(10ms);
                 
             }                      //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
             auto calc_time =  this-> get_clock()->now()-start_time;
@@ -332,10 +313,10 @@ class DwaPlanner : public rclcpp::Node{
 
                 auto prev_time  =this->get_clock()->now();
                 auto cur_time  =this->get_clock()->now();
-                rclcpp::Duration loop_duration = rclcpp::Duration::from_seconds(T);
+                rclcpp::Duration loop_duration = rclcpp::Duration::from_seconds(T*0.8);
 
                 double goal_dist = sqrt(pow(x_goal - pose_x, 2) + pow(y_goal - pose_y, 2));
-                if (goal_dist < 0.10) // 0.1 meters threshold
+                if (goal_dist < 0.05) 
                 {
                     RCLCPP_INFO(this->get_logger(), "Goal reached! Stopping robot..");
                     publish_velocities(0.0, 0.0);
@@ -343,14 +324,15 @@ class DwaPlanner : public rclcpp::Node{
                     wf=0.0;
                     return;
                 }
-                auto time_offset= rclcpp::Duration::from_seconds(2*calc_ms);
+                auto time_offset= rclcpp::Duration::from_seconds(0.2);
 
-                while(cur_time - prev_time + time_offset < loop_duration && flag==true)
+                while(cur_time - prev_time + time_offset< loop_duration && flag==true)
                 {
                     publish_markers(trajectories,best_index);
-                    publish_velocities(vf,wf);
+                    publish_velocities(vf,wf);                                  //comment out to publish velocities
 
-                    if (goal_dist < 0.07) // 0.1 meters threshold
+
+                    if (goal_dist < 0.05) // 0.1 meters threshold
                     {
                         flag= false;
                         RCLCPP_INFO(this->get_logger(), "Goal reached! Stopping robot. trigering while");
@@ -372,31 +354,20 @@ class DwaPlanner : public rclcpp::Node{
            }//////////// for best index-1
 
 
-
-
-
-
-        //     /////////////////////////////////////////////////
-        //     auto end_time = this->get_clock()->now();
-        //     auto dur = end_time-start_time;
-            // RCLCPP_INFO(this->get_logger(), "Selected Velocities: v=%.3f, w=%.3f time_taken=%d", best_v, best_w,dur);
         }
 
         double cost_obstacle(const traj&t)
         {
-            // double cost = 0;
-            double min_dist=10.0;
+
+            double min_dist=3.6;
             double x,y,theta;
             if(obstacles.empty())
             {
                 return 0;
             }
-            if (t.points.empty()) 
+            for (const auto& point : t.points) 
             {
-                // return 1;
-                x= pose_x;
-                y= pose_y;
-                theta= pose_yaw;
+                std::tie(x, y, theta) = point;
                 for (const auto& obs : obstacles) {
                     double dist = hypot(obs.first - x, obs.second - y);
                     if (dist < min_dist) {
@@ -404,18 +375,8 @@ class DwaPlanner : public rclcpp::Node{
                     }
                 }
             }
-            else{
-                for (const auto& point : t.points) {
-                    auto [x, y, theta] = point;
-                    for (const auto& obs : obstacles) {
-                        double dist = hypot(obs.first - x, obs.second - y);
-                        if (dist < min_dist) {
-                            min_dist = dist;
-                        }
-                    }
-                }
-            }
-            auto cost_= 1.0 / (1.0 + exp(6*(min_dist-0.4)));   //a=6 & b=0.4 try this also
+    
+            auto cost_ = (1-min_dist/3.5);
             return cost_;
         }
 
@@ -435,7 +396,8 @@ class DwaPlanner : public rclcpp::Node{
                 heading_error = 2 * 3.14 - heading_error;
             }
 
-            return heading_error/3.14; // * goal_dist;
+
+            return heading_error/3.14 ; //* goal_dist;
         }
 
         double cost_dist_left(const traj&t)
@@ -454,21 +416,12 @@ class DwaPlanner : public rclcpp::Node{
 
         double generate_cost(const traj&t)
         {
-            double head_error =  cost_heading_angle(t);
-            double obstacle_error = cost_obstacle(t);
-            // double dist_error =cost_dist_left(t);
+            double head_cost =  cost_heading_angle(t);
+            double obstacle_cost = cost_obstacle(t);
 
-            // double cost = ALPHA * head_error + BETA * obstacle_error + GAMMA* dist_error;
+            double cost= ALPHA*head_cost +BETA*obstacle_cost;
 
-            double a=1.0 / (1.0 + exp(10.0 * (obstacle_error - 0.1)));
-            double b=1-a;
-
-            // double cost = head_error;
-
-            double cost = a * head_error + b * obstacle_error ;
-
-            // RCLCPP_INFO(this->get_logger(), "Head Error: %.4f, Obstacle Error: %.4f, Dist Error: %.4f, Final Cost: %.4f", 
-            //     head_error, obstacle_error, dist_error, cost);
+ 
 
             return cost;
 
@@ -559,10 +512,7 @@ class DwaPlanner : public rclcpp::Node{
             return min_index;
         }
         
-        double sigmoid_penalty(double cost, double sharpness, double offset) 
-        {
-            return 1.0 / (1.0 + exp(sharpness * (-cost)));
-        }
+        
 
         ///////////////////////////////////////////////////////////////
         
@@ -585,6 +535,7 @@ int main(int argc, char **argv)
     rclcpp::shutdown();
     return 0;
 }
+
 
 
 
