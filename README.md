@@ -76,6 +76,12 @@ src
 ├── README.md
 ```
 
+### Current Progress.
+
+1>Tuning of Parameters is required
+2>Smoothing cost is left to add.
+3>Need to add Recovery Behaviour.
+
 Contributors
 
 RAJ MOHAMMAD
