@@ -14,7 +14,7 @@ https://drive.google.com/drive/folders/1DjR_KlYWfcxx8S4E6fx437Lm58LPWZeV?usp=sha
 
 1. Clone the repository
 ```sh
-git clone https://github.com/mohammadraj101/mowito_ws.git src/
+git clone https://github.com/mohammadraj101/10x_ws.git src/
 ```
 2. Set up turtlebot3
 ```sh
