@@ -19,17 +19,17 @@ using namespace std::chrono_literals;
 
 /////////////////////////////////////////////////////////////////////////////////////////// Parameters //////////////////
 
-const double ALPHA = 0.3;
-const double BETA = 0.7;
+const double ALPHA = 0.1;
+const double BETA = 0.9;
 const double GAMMA = 0.0;
-const double SAFETY_DISTANCE = 0.5;
+const double SAFETY_DISTANCE = 0.4;
 
-const double V_MIN =  0.1, V_MAX = 0.5;
+const double V_MIN =  0.2, V_MAX = 0.8;
 const double W_MIN = -1.7, W_MAX = 1.7;
 const double A_MIN = -0.5, A_MAX = 0.4;
 const double AL_MIN = -2.5, AL_MAX = 2.5;
-const double V_RES = 0.25, W_RES = 0.2;
-const double T = 3.0 , DT = 0.05;
+const double V_RES = 0.25, W_RES = 0.1;
+const double T = 2.0 , DT = 0.05;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -313,7 +313,7 @@ class DwaPlanner : public rclcpp::Node{
 
                 auto prev_time  =this->get_clock()->now();
                 auto cur_time  =this->get_clock()->now();
-                rclcpp::Duration loop_duration = rclcpp::Duration::from_seconds(T*0.8);
+                rclcpp::Duration loop_duration = rclcpp::Duration::from_seconds(0.25);
 
                 double goal_dist = sqrt(pow(x_goal - pose_x, 2) + pow(y_goal - pose_y, 2));
                 if (goal_dist < 0.05) 
@@ -418,7 +418,8 @@ class DwaPlanner : public rclcpp::Node{
         {
             double head_cost =  cost_heading_angle(t);
             double obstacle_cost = cost_obstacle(t);
-
+            double a,b;
+            
             double cost= ALPHA*head_cost +BETA*obstacle_cost;
 
  
