@@ -77,10 +77,12 @@ src
 ```
 
 ## Working :
-Sampling velocities are sampled <br>
-Trajectory Generation <br>
-Removing close velocities which can hit the obstacle <br>
-cost-function generation <br>
+Sampling velocities. <br>
+Trajectory Generation. <br>
+Removing close velocities which can hit the obstacle. <br>
+cost-function generation. <br>
+choose the mininmum cost trajectory.<br>
+publish the velocities with minimum cost.<br>
 
 ### Current Progress.
 
