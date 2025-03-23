@@ -161,6 +161,7 @@
           </ros>
           <output_type>sensor_msgs/LaserScan</output_type>
           <frame_name>base_scan</frame_name>
+          <update_rate>30</update_rate>  
         </plugin>
       </sensor>
     </link>

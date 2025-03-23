@@ -124,6 +124,8 @@ ament_export_dependencies(rosidl_default_runtime)
 # Add Executables
 add_executable(dwa_planner_node src/dwa_planner_node.cpp)
 add_executable(working_dwa src/working_backup_my_world.cpp)
+add_executable(check_dwa src/checker.cpp)
+add_executable(new_dwa src/new_dwa.cpp)
 
 # Link dependencies
 ament_target_dependencies(dwa_planner_node
@@ -147,6 +149,26 @@ ament_target_dependencies(working_dwa
   tf2_ros
   tf2_geometry_msgs
 )
+ament_target_dependencies(check_dwa 
+  rclcpp
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  visualization_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
+ament_target_dependencies(new_dwa 
+  rclcpp
+  sensor_msgs
+  nav_msgs
+  geometry_msgs
+  visualization_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
 
 # Link the generated service header to the node
 rosidl_target_interfaces(dwa_planner_node
@@ -155,10 +177,18 @@ rosidl_target_interfaces(dwa_planner_node
 rosidl_target_interfaces(working_dwa
   ${PROJECT_NAME} rosidl_typesupport_cpp)
 
+rosidl_target_interfaces(check_dwa
+  ${PROJECT_NAME} rosidl_typesupport_cpp)
+
+rosidl_target_interfaces(new_dwa
+  ${PROJECT_NAME} rosidl_typesupport_cpp)
+
 # Install target
 install(TARGETS
   dwa_planner_node
+  new_dwa
   working_dwa
+  check_dwa
   DESTINATION lib/${PROJECT_NAME}
 )
 

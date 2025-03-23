@@ -26,7 +26,7 @@ const double V_MIN =  0.1, V_MAX = 1.0;
 const double W_MIN = -2.0, W_MAX = 2.0;
 const double A_MIN = -0.5, A_MAX = 0.4;
 const double AL_MIN = -2.8, AL_MAX = 2.8;
-const double V_RES = 0.1, W_RES = 0.1;
+const double V_RES = 0.1, W_RES = 0.3;
 const double T = 0.3 , DT = 0.05;
 
 struct traj {
