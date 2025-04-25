@@ -126,8 +126,11 @@ add_executable(dwa_planner_node src/dwa_planner_node.cpp)
 add_executable(working_dwa src/working_backup_my_world.cpp)
 add_executable(check_dwa src/checker.cpp)
 add_executable(new_dwa src/new_dwa.cpp)
-
+add_executable(local_costmap_node src/local_costmap.cpp)
 # Link dependencies
+
+ament_target_dependencies(local_costmap_node rclcpp sensor_msgs nav_msgs tf2_geometry_msgs)
+
 ament_target_dependencies(dwa_planner_node
   rclcpp
   sensor_msgs
@@ -186,6 +189,7 @@ rosidl_target_interfaces(new_dwa
 # Install target
 install(TARGETS
   dwa_planner_node
+  local_costmap_node
   new_dwa
   working_dwa
   check_dwa

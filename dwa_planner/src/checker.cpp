@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <limits>
 #include <chrono>
-#include <mutex> 
+
 
 using namespace std::chrono_literals;
 
@@ -23,15 +23,15 @@ using namespace std::chrono_literals;
 const double ALPHA = 0.1;
 const double BETA = 0.9;
 const double GAMMA = 0.0;
-const double SAFETY_DISTANCE = 0.4;
+const double SAFETY_DISTANCE = 0.5;
 
-const double V_MIN =  0.08, V_MAX = 0.7;
-const double W_MIN = -2.0, W_MAX = 2.0;
-const double A_MIN = -1.5, A_MAX = 1.5;
+const double V_MIN =  0.1, V_MAX = 0.5;
+const double W_MIN = -2.5, W_MAX = 2.5;
+const double A_MIN = -2.0, A_MAX = 2.0;
 const double AL_MIN = -1.5, AL_MAX = 1.5;
-const double V_RES = 0.2, W_RES = 0.5;
-const double T = 3.0 , DT = 0.05 ,DP=0.1;
-const int FI = static_cast<int>(DP/DT);
+const double V_RES = 0.05, W_RES = 0.2;
+const double T = 2.0 , DT = 0.01 ,DP=0.03;
+const int FI = static_cast<int>(T/DT)-1;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -73,7 +73,7 @@ class DwaPlanner : public rclcpp::Node{
                 vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel",10);
                 marker_pub_ = this-> create_publisher<visualization_msgs::msg::MarkerArray>("/dwa",10);
 
-                timer_ = this->create_wall_timer(205ms, std::bind(&DwaPlanner::apply_DWA,this),callback_group_4_);
+                timer_ = this->create_wall_timer(33ms, std::bind(&DwaPlanner::apply_DWA,this),callback_group_4_);
 
                 ////////////////////
                 // scan_sub_.subscribe(this, "/scan");
@@ -114,7 +114,6 @@ class DwaPlanner : public rclcpp::Node{
         rclcpp::CallbackGroup::SharedPtr callback_group_4_;
         rclcpp::Service<dwa_planner::srv::GetGoal>::SharedPtr goal_srv_;
 
-        std::mutex odom_mutex, scan_mutex, obstacle_mutex, vel_mutex;
 
 
 
@@ -138,13 +137,11 @@ class DwaPlanner : public rclcpp::Node{
         
         void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
         {
-            std::lock_guard<std::mutex> lock(scan_mutex);
             laser_msg=msg;
         }
 
         std::vector<std::pair<double, double>> get_obstacles(const sensor_msgs::msg::LaserScan::SharedPtr msg)
         {
-            std::lock_guard<std::mutex> lock(obstacle_mutex);
 
             std::vector<std::pair<double, double>> obst;
             double angle = msg->angle_min;
@@ -152,8 +149,9 @@ class DwaPlanner : public rclcpp::Node{
             {
                 if(!std::isnan(r) && msg->range_min<r && r<msg->range_max)
                 {
-                    double x= pose_x + r*cos(angle);
-                    double y= pose_y + r*sin(angle);
+                    double global_ang = pose_yaw + angle;
+                    double x= pose_x + r*cos(global_ang);
+                    double y= pose_y + r*sin(global_ang);
 
                     obst.emplace_back(x , y );
                 }
@@ -164,7 +162,6 @@ class DwaPlanner : public rclcpp::Node{
 
         void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
         {
-            std::lock_guard<std::mutex> lock(odom_mutex);
 
             pose_x =msg->pose.pose.position.x;
             pose_y =msg->pose.pose.position.y;
@@ -274,11 +271,11 @@ class DwaPlanner : public rclcpp::Node{
 
                     th+=w*DT;
 
-                    // if (check_collision(x,y))
-                    // {
-                    //     collision =true;
-                    //     break;
-                    // }
+                    if (check_collision(x,y))
+                    {
+                        collision =true;
+                        break;
+                    }
                     t.points.emplace_back(x,y,th);
                 }
 
@@ -301,12 +298,11 @@ class DwaPlanner : public rclcpp::Node{
 
             if(flag==false)
             {
-                std::lock_guard<std::mutex> lock(vel_mutex);
                 publish_velocities(0.0, 0.0);
                 return;
             }
             
-                // std::lock_guard<std::mutex> lock(obstacle_mutex);
+
                 auto velocities = sample_velocities();
                 auto trajectories = generate_trajectories(velocities);
             
@@ -337,7 +333,7 @@ class DwaPlanner : public rclcpp::Node{
 
                 auto prev_time  =this->get_clock()->now();
                 auto cur_time  =this->get_clock()->now();
-                rclcpp::Duration loop_duration = rclcpp::Duration::from_seconds(DP);
+                rclcpp::Duration loop_duration = rclcpp::Duration::from_seconds(0.02);
 
                 double goal_dist = sqrt(pow(x_goal - pose_x, 2) + pow(y_goal - pose_y, 2));
                 if (goal_dist < 0.05) 
@@ -348,7 +344,7 @@ class DwaPlanner : public rclcpp::Node{
                     wf=0.0;
                     return;
                 }
-                auto time_offset= rclcpp::Duration::from_seconds(0.2);
+                auto time_offset= rclcpp::Duration::from_seconds(0.3);
 
                 while(cur_time - prev_time < loop_duration && flag==true)
                 {
@@ -374,13 +370,13 @@ class DwaPlanner : public rclcpp::Node{
 
                 RCLCPP_INFO(this->get_logger(), "Current Pose: x: %.3f, y: %.3f,   Min dist traj : %.4f ", 
                 pose_x, pose_y,3.5*(1-trajectories[best_index].cost));
-                std::cout<<"traj 1 dist "<<3.5*(1-trajectories[0].cost)<<"Ang vel :"<<trajectories[0].w<<"\n";
-                std::cout<<"traj 2 dist "<<3.5*(1-trajectories[1].cost)<<"Ang vel :"<<trajectories[1].w<<"\n";
-                std::cout<<"traj 3 dist "<<3.5*(1-trajectories[2].cost)<<"Ang vel :"<<trajectories[2].w<<"\n";
-                std::cout<<"traj 4 dist "<<3.5*(1-trajectories[3].cost)<<"Ang vel :"<<trajectories[3].w<<"\n";
-                std::cout<<"traj 5 dist "<<3.5*(1-trajectories[4].cost)<<"Ang vel :"<<trajectories[4].w<<"\n";
-                std::cout<<"traj 6 dist "<<3.5*(1-trajectories[3].cost)<<"Ang vel :"<<trajectories[5].w<<"\n";
-                std::cout<<"traj 7 dist "<<3.5*(1-trajectories[4].cost)<<"Ang vel :"<<trajectories[6].w<<"\n";
+                // std::cout<<"traj 1 dist "<<3.5*(1-trajectories[0].cost)<<"Ang vel :"<<trajectories[0].w<<"\n";
+                // std::cout<<"traj 2 dist "<<3.5*(1-trajectories[1].cost)<<"Ang vel :"<<trajectories[1].w<<"\n";
+                // std::cout<<"traj 3 dist "<<3.5*(1-trajectories[2].cost)<<"Ang vel :"<<trajectories[2].w<<"\n";
+                // std::cout<<"traj 4 dist "<<3.5*(1-trajectories[3].cost)<<"Ang vel :"<<trajectories[3].w<<"\n";
+                // std::cout<<"traj 5 dist "<<3.5*(1-trajectories[4].cost)<<"Ang vel :"<<trajectories[4].w<<"\n";
+                // std::cout<<"traj 6 dist "<<3.5*(1-trajectories[3].cost)<<"Ang vel :"<<trajectories[5].w<<"\n";
+                // std::cout<<"traj 7 dist "<<3.5*(1-trajectories[4].cost)<<"Ang vel :"<<trajectories[6].w<<"\n";
 
                 std::cout<<"\n";
                 
@@ -399,7 +395,7 @@ class DwaPlanner : public rclcpp::Node{
             {
                 return 0;
             }
-            for (auto i=int(FI/2);i<=FI;i++) 
+            for (auto i=0;i<=FI;i++) 
             {
 
                 std::tie(x, y, theta) = t.points[i];
@@ -465,14 +461,8 @@ class DwaPlanner : public rclcpp::Node{
             double a,b;
             a=ALPHA;
             b=BETA;
-
-            if (3.5*(1-obstacle_cost)<1.5)
-            {
-                a=0.05*ALPHA;
-                b=1-a;
-            }
             
-            double cost= a*head_cost +1*obstacle_cost;
+            double cost= 0.2*head_cost + 0.6*obstacle_cost + 0.2*dist_cost;
             
             // double cost=obstacle_cost;
 
@@ -484,7 +474,7 @@ class DwaPlanner : public rclcpp::Node{
         
         void publish_velocities(double vf, double wf)
         {
-            // std::lock_guard<std::mutex> lock(vel_mutex);
+
             auto cmd =geometry_msgs::msg::Twist();
             cmd.linear.x=vf;
             cmd.angular.z=wf;

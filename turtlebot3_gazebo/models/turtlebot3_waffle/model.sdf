@@ -133,7 +133,7 @@
         <always_on>true</always_on>
         <visualize>true</visualize>
         <pose>-0.064 0 0.121 0 0 0</pose>
-        <update_rate>5</update_rate>
+        <update_rate>30</update_rate>
         <ray>
           <scan>
             <horizontal>
@@ -161,7 +161,7 @@
           </ros>
           <output_type>sensor_msgs/LaserScan</output_type>
           <frame_name>base_scan</frame_name>
-          <update_rate>30</update_rate>                   <!-- added extra -->
+          <update_rate>50</update_rate>                   <!-- added extra -->
         </plugin>
       </sensor>
     </link>

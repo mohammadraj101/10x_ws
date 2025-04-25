@@ -4,6 +4,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "visualization_msgs/msg/marker.hpp"
+#include "nav_msgs/msg/occupancy_grid.hpp"
 #include "dwa_planner/srv/get_goal.hpp"
 
 #include <tf2/LinearMath/Quaternion.h>
@@ -23,14 +24,14 @@ using namespace std::chrono_literals;
 const double ALPHA = 0.1;
 const double BETA = 0.9;
 const double GAMMA = 0.0;
-const double SAFETY_DISTANCE = 0.4;
+const double SAFETY_DISTANCE = 0.3;
 
-const double V_MIN =  0.2, V_MAX = 0.7;
+const double V_MIN =  0.1, V_MAX = 0.5;
 const double W_MIN = -2.0, W_MAX = 2.0;
-const double A_MIN = -2.5, A_MAX = 2.5;
-const double AL_MIN = -4.0, AL_MAX = 4.0;
+const double A_MIN = -2.0, A_MAX = 2.0;
+const double AL_MIN = -1.5, AL_MAX = 1.5;
 const double V_RES = 0.2, W_RES = 0.5;
-const double T = 3.0 , DT = 0.05 ,DP=0.33;
+const double T = 2.0 , DT = 0.05 ,DP=2.0;
 const int FI = static_cast<int>(DP/DT);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -58,13 +59,23 @@ class DwaPlanner : public rclcpp::Node{
                 rclcpp::SubscriptionOptions c1;
                 c1.callback_group=callback_group_1_;
 
-                scan_sub_ = this-> create_subscription<sensor_msgs::msg::LaserScan>(
-                    "/scan", 10, std::bind(&DwaPlanner::scan_callback, this, std::placeholders::_1),c1);
+                // scan_sub_ = this-> create_subscription<sensor_msgs::msg::LaserScan>(
+                //     "/scan", 50, std::bind(&DwaPlanner::scan_callback, this, std::placeholders::_1),c1);
+
+                // rclcpp::SubscriptionOptions costmap_opts;
+                // costmap_opts.callback_group = callback_group_1_;
+
+                costmap_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+                    "/local_costmap", 10,
+                    std::bind(&DwaPlanner::costmap_callback, this, std::placeholders::_1),
+                    c1);
+
+                
                 
                 rclcpp::SubscriptionOptions c2;
                 c2.callback_group = callback_group_2_;
                 odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-                    "/odom", 10,std::bind(&DwaPlanner::odom_callback, this, std::placeholders::_1),c2);
+                    "/odom", 50,std::bind(&DwaPlanner::odom_callback, this, std::placeholders::_1),c2);
                 
                 goal_srv_ = this->create_service<dwa_planner::srv::GetGoal>(
                     "get_goal",
@@ -73,7 +84,7 @@ class DwaPlanner : public rclcpp::Node{
                 vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel",10);
                 marker_pub_ = this-> create_publisher<visualization_msgs::msg::MarkerArray>("/dwa",10);
 
-                timer_ = this->create_wall_timer(33.33ms, std::bind(&DwaPlanner::apply_DWA,this),callback_group_4_);
+                timer_ = this->create_wall_timer(33ms, std::bind(&DwaPlanner::apply_DWA,this),callback_group_4_);
 
                 ////////////////////
                 // scan_sub_.subscribe(this, "/scan");
@@ -101,7 +112,7 @@ class DwaPlanner : public rclcpp::Node{
 
             }
     private:
-        rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+        // rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
         rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
 
         rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr vel_pub_;
@@ -114,18 +125,18 @@ class DwaPlanner : public rclcpp::Node{
         rclcpp::CallbackGroup::SharedPtr callback_group_4_;
         rclcpp::Service<dwa_planner::srv::GetGoal>::SharedPtr goal_srv_;
 
-        // using MySyncPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::LaserScan, nav_msgs::msg::Odometry>;
-        // message_filters::Subscriber<sensor_msgs::msg::LaserScan> scan_sub_;
-        // message_filters::Subscriber<nav_msgs::msg::Odometry> odom_sub_;
-        // std::shared_ptr<message_filters::Synchronizer<MySyncPolicy>> sync_;
-        // std::mutex data_mutex_;
-        std::mutex odom_mutex, scan_mutex, obstacle_mutex, vel_mutex;
+        rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_sub_;
+        nav_msgs::msg::OccupancyGrid::SharedPtr local_costmap_;
+        std::mutex costmap_mutex;
+
+
+        std::mutex odom_mutex, obstacle_mutex, vel_mutex;
 
 
 
 
-        sensor_msgs::msg::LaserScan::SharedPtr laser_msg;
-        std::vector<std::pair<double,double>> obstacles;
+        // sensor_msgs::msg::LaserScan::SharedPtr laser_msg;
+        // std::vector<std::pair<double,double>> obstacles;
         double x_goal, y_goal, goal_theta;
         double curr_vx, curr_w;
         double pose_x, pose_y, pose_yaw;
@@ -139,39 +150,39 @@ class DwaPlanner : public rclcpp::Node{
             return 1.0 / (1.0 + exp(-k * (x - c)));
         }
 
-        // void callback(const sensor_msgs::msg::LaserScan::SharedPtr scan, const nav_msgs::msg::Odometry::SharedPtr odom) {
-        //     std::lock_guard<std::mutex> lock(data_mutex_);
-        //     RCLCPP_INFO(this->get_logger(), "Received synced /scan and /odom data");
-        //     // Process odom and scan together safely
+    private:
+
+        void costmap_callback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+        {
+            std::lock_guard<std::mutex> lock(costmap_mutex);
+            local_costmap_ = msg;
+        }
+        
+        // void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
+        // {
+        //     std::lock_guard<std::mutex> lock(scan_mutex);
+        //     laser_msg=msg;
         // }
 
-    // private:
-        
-        void scan_callback(const sensor_msgs::msg::LaserScan::SharedPtr msg)
-        {
-            std::lock_guard<std::mutex> lock(scan_mutex);
-            laser_msg=msg;
-        }
+        // std::vector<std::pair<double, double>> get_obstacles(const sensor_msgs::msg::LaserScan::SharedPtr msg)
+        // {
+        //     std::lock_guard<std::mutex> lock(obstacle_mutex);
 
-        std::vector<std::pair<double, double>> get_obstacles(const sensor_msgs::msg::LaserScan::SharedPtr msg)
-        {
-            std::lock_guard<std::mutex> lock(obstacle_mutex);
+        //     std::vector<std::pair<double, double>> obst;
+        //     double angle = msg->angle_min;
+        //     for (auto r: msg->ranges)
+        //     {
+        //         if(!std::isnan(r) && msg->range_min<r && r<msg->range_max)
+        //         {
+        //             double x= pose_x + r*cos(angle);
+        //             double y= pose_y + r*sin(angle);
 
-            std::vector<std::pair<double, double>> obst;
-            double angle = msg->angle_min;
-            for (auto r: msg->ranges)
-            {
-                if(!std::isnan(r) && msg->range_min<r && r<msg->range_max)
-                {
-                    double x= pose_x + r*cos(angle);
-                    double y= pose_y + r*sin(angle);
-
-                    obst.emplace_back(x , y );
-                }
-                angle += msg->angle_increment;
-            }
-            return obst;
-        }
+        //             obst.emplace_back(x , y );
+        //         }
+        //         angle += msg->angle_increment;
+        //     }
+        //     return obst;
+        // }
 
         void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
         {
@@ -207,32 +218,32 @@ class DwaPlanner : public rclcpp::Node{
             response->success = true;
         }
 
-        double dist_obst(double x,double y)     // will return the min distance from the obstacle  of any x,y, cordinate
-        {
-            double min_dist=100;
-            for (auto &obs : obstacles)
-            {
-                double dist= sqrt((obs.first - x)*(obs.first - x)+(obs.second - y)*(obs.second - y));
-                if (dist< min_dist)
-                {
-                    min_dist=dist;
-                }
-            }
-            return min_dist;
-        }
+        // double dist_obst(double x,double y)     // will return the min distance from the obstacle  of any x,y, cordinate
+        // {
+        //     double min_dist=100;
+        //     for (auto &obs : obstacles)
+        //     {
+        //         double dist= sqrt((obs.first - x)*(obs.first - x)+(obs.second - y)*(obs.second - y));
+        //         if (dist< min_dist)
+        //         {
+        //             min_dist=dist;
+        //         }
+        //     }
+        //     return min_dist;
+        // }
 
-        bool check_collision(double x,double y)     // to check whether a trajactory can lead to collisiom
-        {
-            for (auto &obs : obstacles)
-            {
-                double dist= sqrt((obs.first - x)*(obs.first - x)+(obs.second - y)*(obs.second - y));
-                if (dist< SAFETY_DISTANCE)
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
+        // bool check_collision(double x,double y)     // to check whether a trajactory can lead to collisiom
+        // {
+        //     for (auto &obs : obstacles)
+        //     {
+        //         double dist= sqrt((obs.first - x)*(obs.first - x)+(obs.second - y)*(obs.second - y));
+        //         if (dist< SAFETY_DISTANCE)
+        //         {
+        //             return true;
+        //         }
+        //     }
+        //     return false;
+        // }
 
         std::vector<std::pair<double,double>> sample_velocities()  //to sample velocities for DWA Approach
         {
@@ -261,7 +272,7 @@ class DwaPlanner : public rclcpp::Node{
         std::vector<traj>  generate_trajectories(const std::vector<std::pair<double, double>>& velocities)  // will do all the computation of enerating the trajectories
         {
             std::vector<traj> trajectories;
-            obstacles=get_obstacles(laser_msg);
+            // obstacles=get_obstacles(laser_msg);
             flag_planning=true;
 
             
@@ -285,11 +296,11 @@ class DwaPlanner : public rclcpp::Node{
 
                     th+=w*DT;
 
-                    if (check_collision(x,y))
-                    {
-                        collision =true;
-                        break;
-                    }
+                    // if (check_collision(x,y))
+                    // {
+                    //     collision =true;
+                    //     break;
+                    // }
                     t.points.emplace_back(x,y,th);
                 }
 
@@ -367,7 +378,7 @@ class DwaPlanner : public rclcpp::Node{
                     publish_velocities(vf,wf);                                  //comment out to publish velocities
 
 
-                    if (goal_dist < 0.05) // 0.1 meters threshold
+                    if (goal_dist < 0.02) // 0.1 meters threshold
                     {
                         flag= false;
                         RCLCPP_INFO(this->get_logger(), "Goal reached! Stopping robot. trigering while");
@@ -401,37 +412,44 @@ class DwaPlanner : public rclcpp::Node{
 
         }
 
-        double cost_obstacle(const traj&t)
+        double cost_obstacle(const traj& t)
         {
+            std::lock_guard<std::mutex> lock(costmap_mutex);
+            if (!local_costmap_ || t.points.empty()) return 0.0;
 
-            double min_dist=3.6;
-            double x,y,theta;
-            if(obstacles.empty())
-            {
-                return 0;
-            }
-            // for (const auto& point : t.points) 
-            // {
-            //     std::tie(x, y, theta) = point;
-            //     for (const auto& obs : obstacles) {
-            //         double dist = hypot(obs.first - x, obs.second - y);
-            //         if (dist < min_dist) {
-            //             min_dist = dist;
-            //         }
-            //     }
-            // }
+            double origin_x = local_costmap_->info.origin.position.x;
+            double origin_y = local_costmap_->info.origin.position.y;
+            double resolution = local_costmap_->info.resolution;
+            int width = local_costmap_->info.width;
+            int height = local_costmap_->info.height;
 
-            std::tie(x, y, theta) = t.points[FI];
-            for (const auto& obs : obstacles) 
+            double total_cost = 0.0;
+            int valid_points = 0;
+
+            for (const auto& [x, y, theta] : t.points)
             {
-                double dist = hypot(obs.first - x, obs.second - y);
-                if (dist < min_dist) {
-                    min_dist = dist;
+                int map_x = static_cast<int>((x - origin_x) / resolution);
+                int map_y = static_cast<int>((y - origin_y) / resolution);
+
+                if (map_x >= 0 && map_x < width && map_y >= 0 && map_y < height)
+                {
+                    int index = map_y * width + map_x;
+                    int cell_cost = local_costmap_->data[index];
+
+                    if (cell_cost >= 0)  // -1 means unknown, ignore
+                    {
+                        total_cost += cell_cost;
+                        valid_points++;
+                    }
                 }
             }
-            auto cost_ = (1-min_dist/3.5);
-            return cost_;
+
+            if (valid_points == 0) return 0.0;
+
+            double average_cost = total_cost / (valid_points * 100.0);  // Normalize to 0.0 - 1.0
+            return average_cost;
         }
+
 
         double cost_heading_angle(const traj&t)
         {
@@ -476,15 +494,15 @@ class DwaPlanner : public rclcpp::Node{
             a=ALPHA;
             b=BETA;
 
-            // if (3.5*(1-obstacle_cost)<0.7)
-            // {
-            //     a=0.5*ALPHA;
-            //     b=1-a;
-            // }
+            if (3.5*(1-obstacle_cost)<1.8)
+            {
+                a=0.05*ALPHA;
+                b=1-a;
+            }
             
-            // double cost= 0*head_cost +1*obstacle_cost;
+            double cost= a*head_cost +b*obstacle_cost;
             
-            double cost=obstacle_cost;
+            // double cost=obstacle_cost;
 
  
 
